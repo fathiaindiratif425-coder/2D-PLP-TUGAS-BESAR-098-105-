@@ -10,6 +10,7 @@ import pytest
 from crud.lexer import LexError
 from crud.lexer import tokenize, TokenType as T
 from crud.pipeline import analyze_source
+from crud.parser import parse_sql
 
 
 def test_regresi_keyword_campur_huruf_dinormalisasi():
@@ -81,3 +82,9 @@ def test_operator_lain_tidak_rusak_oleh_perbaikan_tidak_sama_dengan():
     assert _nilai("a < b > c = d <= e >= f != g") == [
         "a", "<", "b", ">", "c", "=", "d", "<=", "e", ">=", "f", "!=", "g",
     ]
+
+
+def test_regresi_panic_mode_lanjut_setelah_titik_koma():
+    script = parse_sql("SELECT FROM x; DELETE FROM log; INSERT INTO a VALUES (1);")
+    assert len(script.errors) == 1
+    assert len(script.statements) == 2
