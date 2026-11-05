@@ -248,3 +248,28 @@ SELECT s.id FROM pengguna u;
 **Peran AI.** AI menemukan bug ini saat meninjau kode terhadap spesifikasi 4.5, menyusun test regresi, dan mengusulkan bentuk perbaikan. Diverifikasi dengan membuktikan test merah sebelum perbaikan: baris `self._pop()` dinonaktifkan sementara dengan tanda `#`, hasilnya 3 failed dan 34 passed (`assert ... in []` dan `assert <Scope object> is None`), lalu baris dikembalikan dan `python -m pytest` penuh hijau.
 
 ---
+
+## Bug 12: Tanda kutip ganda `''` di dalam string memutus string
+
+**Ditemukan oleh:** Fathia (driver) dan Bunga (navigator) **Diperbaiki oleh:** Fathia
+
+**Gejala.** `tokenize("'O''Brien'")` menghasilkan dua token `STRING` (`O` dan `Brien`), padahal SPESIFIKASI.md bagian 2.4 menyatakan `''` di dalam string berarti satu tanda kutip, sehingga seharusnya satu token bernilai `O'Brien`. Dampak lanjutannya, kueri `SELECT id FROM pelanggan WHERE nama = 'O''Brien'` ditolak parser dengan pesan
+`diharapkan ';' di akhir statement, ditemukan 'Brien'`, sehingga statement itu hilang dari CRUD matrix. Bug ini tidak tertangkap test terlihat.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT 'O''Brien'
+```
+
+**Akar masalah.** Di _string yang lama, begitu lexer membaca ', ia langsung berhenti, tanpa melihat karakter sesudahnya. Jadi di 'O''Brien', kutip pertama sesudah O dianggap penutup, dan kutip yang langsung menyusul dianggap pembuka string baru (Brien). Hasilnya dua token STRING berurutan, dan parser tidak tahu apa yang harus dilakukan dengan dua string yang berdempetan. Di Lox, string berakhir di kutip pertama dan memang tidak ada escape, jadi cara langsung berhenti sudah cukup. SQL berbeda: '' berarti satu kutip di dalam string, jadi lexer harus mengintip dulu sebelum memutuskan.
+
+**Perbaikan.** Di `crud/lexer.py` fungsi `_string`, saat membaca `'`, lexer mengintip karakter berikutnya dengan `_peek()`. Jika karakter berikutnya juga `'`, keduanya dibaca dan satu `'` ditambahkan ke isi string, lalu loop dilanjutkan. Jika bukan, `'` itu adalah penutup string. Alternatif yang dipertimbangkan: menangani `\'` (escape dengan backslash) seperti bahasa lain. Tidak dipilih karena spesifikasi 2.4 menetapkan `''` sebagai aturan escape SQL.
+
+**Test regresi.** `test_regresi_kutip_ganda_di_dalam_string` (gagal sebelum perbaikan dengan `assert 'O' == "O'Brien"`, lulus sesudahnya). Kasus tepi:
+`test_string_kosong_dan_kutip_di_ujung` dan `test_dua_string_berdampingan_tetap_dua_token`.
+
+**Peran AI.** AI membantu menunjukkan lokasi bug di `_string` dengan membandingkannya dengan spesifikasi 2.4 dan menyarankan bentuk perbaikan. Diverifikasi dengan test yang gagal dulu karena alasan yang benar (hasil `'O'` bukan `"O'Brien"`), lalu `python -m pytest` penuh hijau (70 passed).
+
+
+---
