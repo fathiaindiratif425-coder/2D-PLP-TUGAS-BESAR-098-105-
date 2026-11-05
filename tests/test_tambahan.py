@@ -303,3 +303,22 @@ def test_tidak_ada_scope_tersisa_setelah_statement_selesai(sql):
 def test_alias_update_tidak_bocor_ke_statement_berikutnya():
     kolom, diag = _resolve_kolom("UPDATE t x SET a = 1;\nSELECT x.b FROM u;")
     assert ("error", "alias 'x' tidak terdefinisi") in diag
+
+
+# String (SPEK 2.4): '' di dalam string berarti satu tanda kutip, bukan akhir string.
+def test_regresi_kutip_ganda_di_dalam_string():
+    toks = tokenize("'O''Brien'")
+    assert toks[0].type == T.STRING
+    assert toks[0].value == "O'Brien"
+
+
+def test_string_kosong_dan_kutip_di_ujung():
+    # Kasus tepi: '' sebagai string kosong, dan 'a''' berisi a lalu satu kutip.
+    assert tokenize("''")[0].value == ""
+    assert tokenize("'a'''")[0].value == "a'"
+
+
+def test_dua_string_berdampingan_tetap_dua_token():
+    # Kasus tepi: 'a' 'b' berspasi BUKAN 'a''b'; perbaikan tidak boleh terlalu agresif.
+    toks = [t for t in tokenize("'a' 'b'") if t.type != T.EOF]
+    assert [t.value for t in toks] == ["a", "b"]
