@@ -1,36 +1,5 @@
 # Laporan Bug
 
-Salin blok di bawah untuk setiap bug. Bagian **Akar masalah** wajib ditulis dengan kata-kata
-sendiri dan memakai konsep dari *Crafting Interpreters* (sebutkan bab). Bagian ini diuji lisan.
-
----
-
-## Bug 1: (judul singkat)
-
-**Ditemukan oleh:** (nama) · **Diperbaiki oleh:** (nama)
-
-**Gejala.** Input, output yang didapat, dan output yang diharapkan menurut SPESIFIKASI.md
-(sebutkan bagiannya).
-
-**Reproduksi minimal.** SQL terpendek yang memicu bug:
-
-```sql
-
-```
-
-**Akar masalah.** Mengapa kode lama salah? Konsep apa yang dilanggar?
-
-**Perbaikan.** File dan fungsi yang diubah, serta alasannya. Sebutkan juga perbaikan
-alternatif yang kalian pertimbangkan dan alasan tidak memilihnya.
-
-**Test regresi.** Nama test di `tests/test_tambahan.py` yang gagal sebelum perbaikan dan lulus
-sesudahnya.
-
-**Peran AI.** Apakah AI membantu menemukan atau memperbaiki bug ini? Bagaimana kalian
-memverifikasinya?
-
----
-
 ## Bug 1: Keyword huruf kecil dikenali sebagai IDENT
 
 **Ditemukan oleh:** Fathia (driver) dan Bunga (navigator) **Diperbaiki oleh:** Fathia
@@ -54,7 +23,7 @@ select 1
 
 ---
 
-## Bug 1: Komentar blok `/* ... */` belum didukung (TODO T3)
+## Bug 2: Komentar blok `/* ... */` belum didukung (TODO T3)
 
 **Ditemukan oleh:** Fathia (driver) dan Bunga (navigator) **Diperbaiki oleh:** Fathia
 
@@ -78,9 +47,7 @@ select 1
 **Peran AI.** AI membantu menjelaskan spesifikasi 2.3 dan menyusun kerangka loop. Diverifikasi dengan test: tiga test regresi merah sebelum perbaikan (kecuali kasus tidak ditutup yang lulus kebetulan karena semua komentar blok melempar `LexError`), hijau sesudahnya.
 
 ---
-
----
-## Bug 1: Panic mode membuang seluruh sisa input
+## Bug 3: Panic mode membuang seluruh sisa input
 
 **Ditemukan oleh:** Fathia (driver) dan Bunga (navigator) **Diperbaiki oleh:** Fathia
 
@@ -100,5 +67,117 @@ SELECT FROM x; DELETE FROM log;
 **Test regresi.** `test_regresi_panic_mode_lanjut_setelah_titik_koma` (awalnya sempat gagal karena `NameError`; setelah import `parse_sql` ditambahkan gagal dengan `assert 0 == 2`, lulus sesudah perbaikan).
 
 **Peran AI.** AI membantu menemukan bug dengan membandingkan `_synchronize` dengan spesifikasi bagian 6 dan menyarankan bentuk perbaikan. Diverifikasi dengan test yang gagal dulu karena alasan yang benar, lalu `python -m pytest` penuh hijau.
+
+---
+
+## Bug 4: Operator `<>` dipecah menjadi dua token
+
+**Ditemukan oleh:** Bunga (driver) dan Fathia (navigator) **Diperbaiki oleh:** Bunga
+
+**Gejala.** `tokenize("a <> b")` menghasilkan empat token (`a`, `<`, `>`, `b`). Menurut SPESIFIKASI.md bagian 2.5, `<>` adalah satu token `OP` (maximal munch), jadi seharusnya tiga token. Akibatnya `analyze_source` pada `laporan_penjualan.sql` gagal dengan `Baris 6, kolom 41: diharapkan ekspresi, ditemukan '>'`, dan test terlihat `test_matrix_laporan_penjualan` gagal.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT id FROM t WHERE x <> 'a'
+```
+
+**Akar masalah.** Di `_scan_token`, cabang untuk karakter `<` hanya mengecek satu kemungkinan perpanjangan, yaitu `=` (menjadi `<=`). Kemungkinan `>` (menjadi `<>`) tidak dicek. Menurut konsep maximal munch (Crafting Interpreters bab 4), lexer harus mengambil lexeme terpanjang yang cocok, dan `<>` lebih panjang daripada `<`. Karena `<` sudah dikeluarkan sendiri, karakter `>` diproses sebagai token baru. Parser hanya menerima token dari lexer, jadi ia tidak pernah melihat `<>`; ia melihat `<` lalu `>`, dan mengeluh karena `>` tidak bisa memulai ekspresi. Gejalanya muncul di parser, tetapi penyebabnya ada di lexer.
+
+**Perbaikan.** Di `crud/lexer.py`, fungsi `_scan_token`, cabang `<` sekarang mengecek `=` lalu `>`: `<=` jika diikuti `=`, `<>` jika diikuti `>`, selain itu `<`. `_match` hanya melihat karakter yang persis di sebelah `<`, jadi `a < > b` (berspasi) tetap menjadi dua token. Alternatif yang dipertimbangkan: (1) menambal parser agar menerima `<` yang diikuti `>` sebagai "tidak sama". Tidak dipilih karena akar masalahnya di lexer, dan parser seharusnya tidak menebak gabungan token. (2) tabel operator yang dicocokkan dari yang terpanjang. Tidak dipilih karena terlalu berat untuk satu operator tambahan dan mengubah banyak kode yang sudah benar.
+
+**Test regresi.** `test_regresi_tidak_sama_dengan_satu_token` dan `test_regresi_tidak_sama_dengan_di_where_tidak_error_parser` (gagal sebelum perbaikan, lulus sesudahnya). Kasus tepi yang menjaga perilaku: `test_tidak_sama_dengan_tanpa_spasi_dan_posisinya`, `test_kurang_dari_spasi_lebih_dari_tetap_dua_token`, dan `test_operator_lain_tidak_rusak_oleh_perbaikan_tidak_sama_dengan`.
+
+**Peran AI.** AI membantu menunjukkan bahwa sumber bug ada di lexer (bukan parser) dengan cara menghitung kolom 41 dan membandingkan hasil `tokenize` dengan spesifikasi 2.5, menyusun test regresi, dan mengusulkan bentuk perbaikan. Diverifikasi dengan menjalankan test sebelum perbaikan (tiga test `<>` merah, dua test penjaga hijau) dan sesudahnya (10 test di `test_tambahan.py` hijau). Selain itu, error `test_matrix_laporan_penjualan` berpindah dari baris 6 ke baris 10 (`INSERT ... SELECT`), yang menandakan bug `<>` sudah beres.
+
+---
+
+## Bug 5: `INSERT ... SELECT` belum didukung (TODO T1)
+
+**Ditemukan oleh:** Bunga dan Fathia (dari hasil `pytest` awal di kedua laptop dan penanda `TODO(T1)` di kode) **Diperbaiki oleh:** Bunga
+
+**Gejala.** `parse_sql("INSERT INTO arsip (id) SELECT id FROM pesanan")` menghasilkan `ParseError: INSERT ... SELECT belum didukung, ditemukan 'SELECT'` dan nol statement. Menurut SPESIFIKASI.md bagian 3 (`insert_stmt`), setelah daftar kolom boleh diikuti `VALUES ...` atau `select_stmt`, dan menurut bagian 5, tabel target dihitung C dan tabel sumber R. Test terlihat `test_insert_select` gagal, dan `test_matrix_laporan_penjualan` ikut gagal dengan `Baris 10, kolom 1: INSERT ... SELECT belum didukung`.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+INSERT INTO a SELECT x FROM b
+```
+
+**Akar masalah.** Ini bukan bug logika, tetapi bagian yang memang belum ditulis (TODO T1). Grammar `insert_stmt` punya dua alternatif setelah daftar kolom, tetapi `_insert` baru menerjemahkan alternatif `VALUES`. Pada cabang `SELECT`, kode hanya melempar `ParseError`. Dalam recursive descent (Crafting Interpreters bab 6), tiap aturan grammar menjadi satu fungsi dan aturan boleh memanggil aturan lain. `select_stmt` sudah punya fungsi `_select`, sehingga alternatif kedua cukup memanggilnya.
+
+**Perbaikan.** Di `crud/parser.py`, fungsi `_insert`, cabang `SELECT` sekarang mengembalikan `ast.Insert(table, columns, [], self._select(), line=start.line)` (`values` kosong, `query` berisi `Select`). Resolver dan analyzer sudah menangani `ins.query`: resolver memberi `SELECT` itu scope sendiri (SPESIFIKASI 4.1), dan analyzer menghitung target C serta sumber R. Alternatif: menulis ulang pengurai `SELECT` khusus untuk `INSERT`. Tidak dipilih karena menduplikasi kode dan berisiko berbeda dari `_select` yang sudah teruji.
+
+**Test regresi.** Test terlihat `test_insert_select` (di `tests/test_parser.py`) dan `test_matrix_laporan_penjualan`. Di `tests/test_tambahan.py`: `test_regresi_insert_select_diurai_dan_dihitung_c_dan_r` (gagal sebelum perbaikan, lulus sesudahnya).
+
+**Peran AI.** AI dipakai untuk membantu menyelesaikan bagian ini (cabang `SELECT` di `_insert`). Diverifikasi dengan test terlihat `test_insert_select` dan `test_matrix_laporan_penjualan` yang awalnya gagal lalu lulus, serta test regresi di `tests/test_tambahan.py` yang gagal pada kode asli dan lulus sesudah perbaikan, ditambah `python -m pytest` penuh hijau.
+
+---
+
+## Bug 6: Subquery di `SET` dan `WHERE` pada `UPDATE` dihitung U, bukan R
+
+**Ditemukan oleh:** Bunga dan Fathia **Diperbaiki oleh:** Bunga
+
+**Gejala.** `analyze_source("UPDATE t SET a = (SELECT max(x) FROM u) WHERE id IN (SELECT id FROM v)").matrix()` menghasilkan `{'t': 'U', 'u': 'U', 'v': 'U'}`. Menurut SPESIFIKASI.md bagian 5, tabel target `UPDATE` dihitung U, sedangkan tabel yang dibaca lewat subquery (di `SET` maupun `WHERE`) selalu R, apa pun jenis statement luarnya. Seharusnya `{'t': 'U', 'u': 'R', 'v': 'R'}`. Bug ini tidak tertangkap test terlihat.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+UPDATE t SET a = 1 WHERE id IN (SELECT id FROM t)
+```
+
+(hasil lama `U`, seharusnya `RU`, karena `t` ditulis dan juga dibaca lewat subquery.)
+
+**Akar masalah.** Di `analyze_statement`, cabang `ast.Update` memanggil `_collect(..., "U")` untuk ekspresi di `SET` dan `WHERE`. `_collect` menandai **semua** tabel di subquery dengan operasi yang diberikan, sehingga tabel subquery ikut ditandai U. Operasi U hanya berlaku untuk tabel target. Tabel di dalam subquery hanya dibaca, jadi operasinya R. Kesalahannya ada pada operasi yang diteruskan ke penelusur AST, bukan pada penelusurannya.
+
+**Perbaikan.** Di `crud/analyzer.py`, fungsi `analyze_statement`, cabang `ast.Update`: dua pemanggilan `_collect` diubah dari `"U"` menjadi `"R"`. Tabel target tetap ditandai `U` lewat `usage[stmt.table.name].add("U")`. Alternatif: membuat `_collect` bisa membedakan target dan sumber sendiri. Tidak dipilih karena perubahan sekecil mengganti argumen sudah cukup dan tidak menyentuh struktur fungsi.
+
+**Test regresi.** `test_regresi_update_subquery_di_set_dan_where_dihitung_r` (gagal sebelum perbaikan dengan hasil `{'t': 'U', 'u': 'U', 'v': 'U'}`, lulus sesudahnya) dan kasus tepi `test_update_subquery_ke_tabel_yang_sama_menjadi_ru`.
+
+**Peran AI.** AI dipakai untuk membantu menemukan dan memperbaiki bug ini. Diverifikasi dengan test regresi di `tests/test_tambahan.py` yang gagal pada kode asli dan lulus sesudah perbaikan, serta `python -m pytest` penuh hijau.
+
+---
+
+## Bug 7: Kolom tanpa qualifier tidak di-resolve (TODO T2)
+
+**Ditemukan oleh:** Bunga dan Fathia (dari hasil `pytest` awal di kedua laptop dan penanda `TODO(T2)` di kode) **Diperbaiki oleh:** Bunga
+
+**Gejala.** Pada `SELECT nama FROM pelanggan WHERE aktif = 1`, `ColumnRef.resolved` bernilai `None` untuk `nama` dan `aktif`. Menurut SPESIFIKASI.md bagian 4.3, kolom tanpa qualifier hanya melihat scope terdalam: bila tepat satu tabel, kolom di-resolve ke tabel itu (di sini `pelanggan`), bila lebih dari satu tabel muncul warning `kolom 'nama' ambigu tanpa skema` dengan `resolved` tetap `None`, dan bila tidak ada tabel muncul warning. Test terlihat `test_kolom_tanpa_qualifier_satu_tabel` gagal.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT nama FROM pelanggan
+```
+
+**Akar masalah.** Ini bagian yang memang belum ditulis (TODO T2). Di `Resolver._column`, kolom dengan qualifier sudah ditangani lalu fungsi `return`. Untuk kolom tanpa qualifier, fungsi hanya berisi komentar dan `pass`, sehingga tidak ada yang mengisi `resolved` maupun diagnostik. Konsepnya adalah lexical scope (Crafting Interpreters bab 11): nama dicari di scope yang berlaku. Untuk kolom tanpa qualifier, aturannya hanya scope terdalam. Itu bisa ditentukan dari jumlah entri di scope tersebut, yaitu satu, banyak, atau nol.
+
+**Perbaikan.** Di `crud/resolver.py`, fungsi `_column`: ambil entri milik scope terdalam (`self.scope.entries`). Bila tepat satu, isi `col.resolved = _target_of(entry)`. Bila lebih dari satu, beri warning ambigu. Bila kosong, beri warning "tidak punya tabel". Alternatif: bila tidak ketemu di scope terdalam, lanjut mencari ke scope luar. Tidak dipilih karena spesifikasi 4.3 tegas bahwa kolom tanpa qualifier hanya melihat scope terdalam. Kelemahannya: kolom correlated yang ditulis tanpa qualifier tidak bisa di-resolve ke tabel di luar.
+
+**Test regresi.** Test terlihat `test_kolom_tanpa_qualifier_satu_tabel` (di `tests/test_resolver.py`). Di `tests/test_tambahan.py`: `test_regresi_kolom_tanpa_qualifier_satu_tabel_teresolusi` (gagal sebelum perbaikan, lulus sesudahnya), serta kasus tepi `test_kolom_tanpa_qualifier_dua_tabel_ambigu` dan `test_kolom_tanpa_qualifier_hanya_scope_terdalam`.
+
+**Peran AI.** AI dipakai untuk membantu menyelesaikan bagian ini (cabang kolom tanpa qualifier di `_column`). Diverifikasi dengan test terlihat `test_kolom_tanpa_qualifier_satu_tabel` yang awalnya gagal lalu lulus, serta test regresi di `tests/test_tambahan.py` yang gagal pada kode asli dan lulus sesudah perbaikan.
+
+---
+
+## Bug 8: `LEFT OUTER JOIN` ditolak parser
+
+**Ditemukan oleh:** Bunga (driver) dan Fathia (navigator); ditemukan lewat tinjauan AI terhadap kode, lalu direproduksi dengan test regresi dan `pemeliharaan.sql` **Diperbaiki oleh:** Bunga
+
+**Gejala.** `parse_sql("SELECT a FROM t LEFT OUTER JOIN u ON u.id = t.id")` menghasilkan `ParseError: diharapkan JOIN, ditemukan 'OUTER'` dan nol statement. Menurut SPESIFIKASI.md bagian 3, aturan `join = [ "INNER" | "LEFT" [ "OUTER" ] ] "JOIN" ...` membolehkan `OUTER` opsional setelah `LEFT`. Karena error ini, seluruh statement hilang dari CRUD matrix; pada `data/sample/pemeliharaan.sql` baris 5 muncul `Baris 5, kolom 6: diharapkan JOIN, ditemukan 'OUTER'`. Bug ini tidak tertangkap test terlihat.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT a FROM t LEFT OUTER JOIN u ON u.id = t.id
+```
+
+**Akar masalah.** Parser recursive descent menerjemahkan grammar ke kode (Crafting Interpreters bab 5 dan 6): tiap elemen opsional `[ ... ]` menjadi `match` yang tidak dituntut, sedangkan elemen wajib menjadi `expect`. Di `_join`, setelah `LEFT` dimakan, kode langsung memanggil `_expect_kw("JOIN")` dan tidak menerjemahkan `[ "OUTER" ]`. Akibatnya token `OUTER` dianggap salah, parser melempar error, dan statement yang memuat join itu gagal seluruhnya sehingga tidak dihitung di CRUD matrix.
+
+**Perbaikan.** Di `crud/parser.py`, fungsi `_join`: satu baris `self._match_kw("OUTER")` ditambahkan **di dalam cabang `LEFT`**, sebelum `_expect_kw("JOIN")`. Penempatan di dalam cabang penting supaya `OUTER` hanya diterima setelah `LEFT`, sesuai grammar. Alternatif: menaruh `_match_kw("OUTER")` di luar `if`, sebelum `_expect_kw("JOIN")`. Tidak dipilih karena `OUTER JOIN` dan `INNER OUTER JOIN` yang salah menurut grammar ikut diterima.
+
+**Test regresi.** `test_regresi_left_outer_join_diterima_parser` dan `test_regresi_left_outer_join_berulang_huruf_kecil_dan_crud` (gagal sebelum perbaikan, lulus sesudahnya). Penjaga kasus tepi: `test_jenis_join_lain_tidak_rusak` (LEFT, INNER, dan JOIN polos tidak berubah) dan `test_outer_hanya_boleh_setelah_left` (OUTER tanpa LEFT, setelah INNER, atau ganda tetap error).
+
+**Peran AI.** AI menemukan bug ini saat meninjau kode terhadap spesifikasi, menyusun test, dan mengusulkan bentuk perbaikan. Diverifikasi dengan menjalankan test sebelum perbaikan (dua test regresi merah, dua test penjaga hijau) dan sesudahnya (`python -m pytest` penuh hijau, 45 passed). Error `pemeliharaan.sql` juga berpindah dari baris 5 (`OUTER`) ke baris 6 (`'O''Brien'`), yaitu bug lain yang berbeda.
 
 ---
