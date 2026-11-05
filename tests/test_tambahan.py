@@ -86,10 +86,26 @@ def test_operator_lain_tidak_rusak_oleh_perbaikan_tidak_sama_dengan():
     ]
 
 
+# Panic mode (SPEK bagian 6): setelah error, parser membuang token sampai dan
+# termasuk ';' lalu lanjut, jadi statement valid sesudahnya tidak ikut hilang.
 def test_regresi_panic_mode_lanjut_setelah_titik_koma():
     script = parse_sql("SELECT FROM x; DELETE FROM log; INSERT INTO a VALUES (1);")
     assert len(script.errors) == 1
     assert len(script.statements) == 2
+
+
+def test_dua_statement_rusak_berurutan_masing_masing_satu_error():
+    # Kasus tepi: dua statement rusak berturut-turut, tiap error dilaporkan sendiri.
+    script = parse_sql("SELECT FROM a; SELECT FROM b;")
+    assert len(script.errors) == 2
+    assert len(script.statements) == 0
+
+
+def test_error_tepat_di_titik_koma_tidak_menelan_statement_berikutnya():
+    # Kasus tepi: token yang salah adalah ';' itu sendiri.
+    script = parse_sql("SELECT ; DELETE FROM log;")
+    assert len(script.errors) == 1
+    assert len(script.statements) == 1
 
 
 # Regresi: LEFT OUTER JOIN ditolak parser ("diharapkan JOIN, ditemukan 'OUTER'"),
