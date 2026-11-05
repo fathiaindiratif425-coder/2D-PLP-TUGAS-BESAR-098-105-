@@ -176,3 +176,98 @@ def test_not_lebih_kuat_dari_and():
     where = script.statements[0].where
     assert where.op == "AND"
     assert where.left.op == "NOT"
+
+
+def _resolve_kolom(sql):
+    """Parse, resolve, lalu kembalikan ([(nama_kolom, resolved)], [(level, pesan)])."""
+    script = parse_sql(sql)
+    diag = Resolver().resolve_script(script)
+    kolom = [(c.name, c.resolved) for c in iter_nodes(script.statements)
+             if isinstance(c, ColumnRef)]
+    return kolom, [(d.level, d.message) for d in diag]
+
+
+# Regresi T1: INSERT ... SELECT sebelumnya ditolak parser ("belum didukung")
+# sehingga statement hilang dari CRUD matrix (SPESIFIKASI bagian 3 dan 5).
+def test_regresi_insert_select_diurai_dan_dihitung_c_dan_r():
+    res = analyze_source("INSERT INTO a (x) SELECT y FROM b WHERE y > 1")
+    assert res.parse_errors == []
+    assert res.matrix() == {"a": "C", "b": "R"}
+
+
+# Regresi analyzer: tabel di subquery UPDATE dihitung U, padahal hanya dibaca
+# (SPESIFIKASI bagian 5: membaca lewat subquery selalu R).
+def test_regresi_update_subquery_di_set_dan_where_dihitung_r():
+    res = analyze_source(
+        "UPDATE t SET a = (SELECT max(x) FROM u) WHERE id IN (SELECT id FROM v)"
+    )
+    assert res.matrix() == {"t": "U", "u": "R", "v": "R"}
+
+
+# Kasus tepi: tabel target juga dibaca lewat subquery, jadi gabungannya "RU"
+# (urutan C, R, U, D), bukan "UR" atau hanya "U".
+def test_update_subquery_ke_tabel_yang_sama_menjadi_ru():
+    res = analyze_source("UPDATE t SET a = 1 WHERE id IN (SELECT id FROM t)")
+    assert res.matrix() == {"t": "RU"}
+
+
+# Regresi T2: kolom tanpa qualifier tidak pernah di-resolve (resolved tetap None).
+def test_regresi_kolom_tanpa_qualifier_satu_tabel_teresolusi():
+    kolom, diag = _resolve_kolom("SELECT nama FROM crm.pelanggan")
+    assert kolom == [("nama", "crm.pelanggan")]
+    assert diag == []
+
+
+# Kasus tepi: dua tabel di scope terdalam -> ambigu, resolved tetap None.
+def test_kolom_tanpa_qualifier_dua_tabel_ambigu():
+    kolom, diag = _resolve_kolom("SELECT nama FROM a, b")
+    assert kolom == [("nama", None)]
+    assert any("ambigu" in pesan for _, pesan in diag)
+
+
+# Kasus tepi: kolom tanpa qualifier hanya melihat scope terdalam, jadi 'k' di
+# subquery (dua tabel) tidak boleh "meminjam" tabel dari scope luar.
+def test_kolom_tanpa_qualifier_hanya_scope_terdalam():
+    kolom, diag = _resolve_kolom(
+        "SELECT 1 FROM a x WHERE EXISTS (SELECT 1 FROM b y, c z WHERE k = 1)"
+    )
+    assert kolom == [("k", None)]
+    assert any("ambigu" in pesan for _, pesan in diag)
+
+
+# Regresi: alias di subquery harus menutupi alias yang sama di luar (shadowing,
+# SPESIFIKASI bagian 4.3). Dulu qualifier ter-resolve ke tabel di scope TERLUAR.
+def test_regresi_alias_di_subquery_menutupi_alias_luar():
+    kolom, diag = _resolve_kolom(
+        "SELECT x.id FROM pelanggan x WHERE x.id IN "
+        "(SELECT x.pelanggan_id FROM pesanan x WHERE x.total > 5)"
+    )
+    assert kolom == [("id", "pelanggan"), ("id", "pelanggan"),
+                     ("pelanggan_id", "pesanan"), ("total", "pesanan")]
+    assert diag == []
+
+
+# Kasus tepi: tiga tingkat bersarang dengan alias yang sama; yang dipakai
+# selalu scope paling dalam, bukan yang paling luar atau tengah.
+def test_alias_sama_di_tiga_tingkat_memakai_yang_terdalam():
+    kolom, _ = _resolve_kolom(
+        "SELECT 1 FROM a x WHERE x.i IN (SELECT 1 FROM b x WHERE x.i IN "
+        "(SELECT 1 FROM c x WHERE x.i = 1))"
+    )
+    assert [t for _, t in kolom] == ["a", "b", "c"]
+
+
+# Kasus tepi: alias yang tidak ada di subquery tetap dicari ke luar (correlated).
+def test_correlated_subquery_tetap_melihat_alias_luar():
+    kolom, diag = _resolve_kolom(
+        "SELECT p.nama FROM pelanggan p WHERE EXISTS "
+        "(SELECT 1 FROM pembayaran b WHERE b.pid = p.id)"
+    )
+    assert ("id", "pelanggan") in kolom and ("pid", "pembayaran") in kolom
+    assert diag == []
+
+
+# Kasus tepi: alias yang tidak ada di scope mana pun tetap error.
+def test_alias_tidak_dikenal_tetap_error():
+    kolom, diag = _resolve_kolom("SELECT z.id FROM a x")
+    assert diag == [("error", "alias 'z' tidak terdefinisi")]
