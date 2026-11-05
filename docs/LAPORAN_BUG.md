@@ -204,3 +204,47 @@ SELECT x FROM t WHERE a = 1 OR b = 2 AND c = 3
 **Peran AI.** AI membantu menunjukkan lokasi bug di `_logical` dengan membandingkan kode dengan spesifikasi 3.1 dan menyarankan bentuk perbaikan. Diverifikasi dengan test yang gagal dulu karena alasan yang benar (`AND` vs `OR`), lalu `python -m pytest` penuh hijau (50 passed).
 
 ---
+## Bug 10: Qualifier dicari dari scope terluar, bukan dari scope terdalam
+
+**Ditemukan oleh:** Bunga (driver) dan Fathia (navigator); ditemukan lewat tinjauan AI terhadap kode, lalu direproduksi dengan test regresi **Diperbaiki oleh:** Bunga
+
+**Gejala.** Pada `SELECT x.id FROM pelanggan x WHERE x.id IN (SELECT x.pelanggan_id FROM pesanan x WHERE x.total > 5)`, `x.pelanggan_id` dan `x.total` di dalam subquery ter-resolve ke `pelanggan` (tabel di luar), padahal alias `x` di subquery milik `pesanan`. Pada tiga tingkat subquery dengan alias yang sama, ketiganya ter-resolve ke tabel paling luar (`['a', 'a', 'a']`, seharusnya `['a', 'b', 'c']`). Menurut SPESIFIKASI.md bagian 4.3, qualifier dicari mulai dari scope terdalam ke luar dan yang pertama ditemukan dipakai, sehingga alias di subquery menutupi alias yang sama di luar (shadowing). Bug ini muncul di `data/sample/audit.sql` baris 14 dan tidak tertangkap test terlihat. CRUD matrix tidak berubah, tetapi `ColumnRef.resolved` salah sehingga keluaran `--kolom` (penggunaan kolom per tabel) ikut salah.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT 1 FROM a x WHERE x.i IN (SELECT 1 FROM b x WHERE x.i = 1)
+```
+
+**Akar masalah.** Di `Resolver._lookup`, daftar scope (`chain`) disusun dari scope aktif lalu naik lewat `parent`, jadi urutannya terdalam dulu. Tetapi daftar itu kemudian diperiksa dengan `reversed(chain)`, sehingga yang diperiksa pertama justru scope terluar. Karena fungsi mengembalikan entri pertama yang cocok, alias di scope luar selalu menang dan alias di subquery tidak pernah sempat diperiksa. Konsepnya adalah scope chain pada resolver (Crafting Interpreters bab 11): variabel dicari mulai dari scope terdalam lalu naik ke luar, sehingga deklarasi yang paling dekat menutupi yang lebih jauh.
+
+**Perbaikan.** Di `crud/resolver.py`, fungsi `_lookup`: `for scope in reversed(chain)` diubah menjadi `for scope in chain`. Rantai sudah berurutan benar (terdalam dulu), jadi cukup dibaca apa adanya. Correlated subquery tetap bekerja, karena alias yang tidak ada di scope dalam tetap ditemukan di scope luar. Alternatif: menelusuri `parent` langsung dalam satu loop tanpa daftar `chain`. Tidak dipilih karena perubahannya lebih besar dan tidak memberi manfaat tambahan.
+
+**Test regresi.** `test_regresi_alias_di_subquery_menutupi_alias_luar` dan `test_alias_sama_di_tiga_tingkat_memakai_yang_terdalam` (gagal sebelum perbaikan, lulus sesudahnya). Penjaga perilaku yang sudah benar: `test_correlated_subquery_tetap_melihat_alias_luar` dan `test_alias_tidak_dikenal_tetap_error`.
+
+**Peran AI.** AI menemukan bug ini saat meninjau kode terhadap spesifikasi 4.3, menyusun test regresi, dan mengusulkan bentuk perbaikan. Diverifikasi dengan menjalankan test sebelum perbaikan (dua test merah dengan hasil `['a', 'a', 'a']` dan `pelanggan_id` ter-resolve ke `pelanggan`, dua test penjaga hijau) dan sesudahnya (`python -m pytest` penuh hijau).
+
+---
+
+## Bug 11: `DELETE` tidak menutup scope-nya, alias bocor ke statement berikutnya
+
+**Ditemukan oleh:** Bunga (driver) dan Fathia (navigator); ditemukan lewat tinjauan AI terhadap kode, lalu direproduksi dengan test regresi **Diperbaiki oleh:** Bunga
+
+**Gejala.** Setelah `DELETE FROM sesi s WHERE s.k < 1;`, statement berikutnya `SELECT s.id FROM pengguna u WHERE u.aktif = 1;` tidak menghasilkan diagnostik apa pun, padahal alias `s` tidak ada di statement itu. Menurut SPESIFIKASI.md bagian 4.5, setiap statement berdiri sendiri: setelah satu statement selesai di-resolve tidak boleh ada scope tersisa, dan alias statement sebelumnya tidak boleh terlihat. Seharusnya muncul `error: alias 's' tidak terdefinisi`. Kasus ini ada di `data/sample/audit.sql` baris 16 dan 18. Setelah `DELETE`, `Resolver.scope` juga tidak bernilai `None`. Bug ini tidak tertangkap test terlihat.
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+DELETE FROM sesi s WHERE s.k < 1;
+SELECT s.id FROM pengguna u;
+```
+
+**Akar masalah.** `Resolver._select` dan `Resolver._update` memanggil `_push()` di awal dan `_pop()` di akhir, tetapi `_delete` hanya memanggil `_push()` dan lupa `_pop()`. Scope milik `DELETE` tertinggal sebagai `self.scope`, lalu scope statement berikutnya dibuat sebagai anaknya. Akibatnya alias dari `DELETE` masih ditemukan lewat rantai induk, seolah-olah statement berikutnya berada di dalam `DELETE`. Konsepnya adalah scope sebagai tumpukan (stack) pada resolver (Crafting Interpreters bab 11): setiap `beginScope` harus berpasangan dengan `endScope`, kalau tidak, scope menumpuk dan kebocoran terbawa ke bagian lain.
+
+**Perbaikan.** Di `crud/resolver.py`, fungsi `_delete`: ditambahkan `self._pop()` di akhir fungsi, sehingga sama seperti `_select` dan `_update`. Alternatif: mengatur ulang `self.scope = None` di awal tiap statement dalam `resolve_script`. Tidak dipilih karena itu hanya menyembunyikan gejala tanpa memperbaiki fungsi yang menyebabkannya, dan bisa merusak scope bersarang di tempat lain.
+
+**Test regresi.** `test_regresi_alias_delete_tidak_bocor_ke_statement_berikutnya` dan `test_tidak_ada_scope_tersisa_setelah_statement_selesai` (parametrize untuk SELECT, INSERT ... SELECT, UPDATE, dan dua bentuk DELETE; kasus DELETE gagal sebelum perbaikan, lulus sesudahnya). Penjaga: `test_alias_update_tidak_bocor_ke_statement_berikutnya` (UPDATE sudah benar sejak awal).
+
+**Peran AI.** AI menemukan bug ini saat meninjau kode terhadap spesifikasi 4.5, menyusun test regresi, dan mengusulkan bentuk perbaikan. Diverifikasi dengan membuktikan test merah sebelum perbaikan: baris `self._pop()` dinonaktifkan sementara dengan tanda `#`, hasilnya 3 failed dan 34 passed (`assert ... in []` dan `assert <Scope object> is None`), lalu baris dikembalikan dan `python -m pytest` penuh hijau.
+
+---
