@@ -271,3 +271,35 @@ def test_correlated_subquery_tetap_melihat_alias_luar():
 def test_alias_tidak_dikenal_tetap_error():
     kolom, diag = _resolve_kolom("SELECT z.id FROM a x")
     assert diag == [("error", "alias 'z' tidak terdefinisi")]
+
+
+# Regresi: DELETE membuat scope tetapi tidak pernah menutupnya, sehingga alias
+# 's' dari DELETE masih terlihat oleh statement berikutnya (SPESIFIKASI 4.5).
+def test_regresi_alias_delete_tidak_bocor_ke_statement_berikutnya():
+    kolom, diag = _resolve_kolom(
+        "DELETE FROM sesi s WHERE s.k < 1;\n"
+        "SELECT s.id FROM pengguna u WHERE u.aktif = 1;"
+    )
+    assert ("error", "alias 's' tidak terdefinisi") in diag
+    assert ("id", None) in kolom
+
+
+# Kasus tepi: setelah SEMUA jenis statement selesai di-resolve, tidak boleh ada
+# scope tersisa (SPESIFIKASI 4.5).
+@pytest.mark.parametrize("sql", [
+    "SELECT a FROM t",
+    "INSERT INTO a (x) SELECT y FROM b",
+    "UPDATE t x SET a = 1 WHERE x.id = 2",
+    "DELETE FROM t x WHERE x.id = 2",
+    "DELETE FROM a x WHERE x.i IN (SELECT 1 FROM b y WHERE y.i = x.i)",
+])
+def test_tidak_ada_scope_tersisa_setelah_statement_selesai(sql):
+    resolver = Resolver()
+    resolver.resolve_script(parse_sql(sql))
+    assert resolver.scope is None
+
+
+# Kasus tepi (penjaga): UPDATE juga membuat scope dan sudah menutupnya dengan benar.
+def test_alias_update_tidak_bocor_ke_statement_berikutnya():
+    kolom, diag = _resolve_kolom("UPDATE t x SET a = 1;\nSELECT x.b FROM u;")
+    assert ("error", "alias 'x' tidak terdefinisi") in diag
