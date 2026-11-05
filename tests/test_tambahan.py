@@ -152,3 +152,27 @@ def test_outer_hanya_boleh_setelah_left():
         "SELECT a FROM t LEFT OUTER OUTER JOIN u ON u.id = t.id",
     ]:
         assert len(parse_sql(sql).errors) == 1
+
+
+# Presedensi (SPEK 3.1): AND lebih kuat dari OR, jadi a OR b AND c dibaca a OR (b AND c).
+def test_regresi_and_lebih_kuat_dari_or():
+    script = parse_sql("SELECT x FROM t WHERE a = 1 OR b = 2 AND c = 3")
+    where = script.statements[0].where
+    assert where.op == "OR"
+    assert where.right.op == "AND"
+
+
+def test_and_lalu_or_dibaca_and_dulu():
+    # Kasus tepi: urutannya dibalik, AND tetap diikat duluan.
+    script = parse_sql("SELECT x FROM t WHERE a = 1 AND b = 2 OR c = 3")
+    where = script.statements[0].where
+    assert where.op == "OR"
+    assert where.left.op == "AND"
+
+
+def test_not_lebih_kuat_dari_and():
+    # Kasus tepi: NOT mengikat paling kuat, jadi NOT a AND b dibaca (NOT a) AND b.
+    script = parse_sql("SELECT x FROM t WHERE NOT a = 1 AND b = 2")
+    where = script.statements[0].where
+    assert where.op == "AND"
+    assert where.left.op == "NOT"
