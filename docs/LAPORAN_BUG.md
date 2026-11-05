@@ -181,3 +181,26 @@ SELECT a FROM t LEFT OUTER JOIN u ON u.id = t.id
 **Peran AI.** AI menemukan bug ini saat meninjau kode terhadap spesifikasi, menyusun test, dan mengusulkan bentuk perbaikan. Diverifikasi dengan menjalankan test sebelum perbaikan (dua test regresi merah, dua test penjaga hijau) dan sesudahnya (`python -m pytest` penuh hijau, 45 passed). Error `pemeliharaan.sql` juga berpindah dari baris 5 (`OUTER`) ke baris 6 (`'O''Brien'`), yaitu bug lain yang berbeda.
 
 ---
+
+
+## Bug 9: AND dan OR diperlakukan setara (presedensi salah)
+
+**Ditemukan oleh:** Fathia (driver) dan Bunga (navigator) **Diperbaiki oleh:** Fathia
+
+**Gejala.**  `a = 1 OR b = 2 AND c = 3` dibaca parser sebagai `(a = 1 OR b = 2) AND c = 3` (operator paling luar `AND`). Menurut SPESIFIKASI.md bagian 3.1, `AND` mengikat lebih kuat daripada `OR`, jadi seharusnya `a = 1 OR (b = 2 AND c = 3)` (operator paling luar `OR`). Pohon AST yang dihasilkan salah. Bug ini tidak tertangkap test terlihat 
+
+**Reproduksi minimal.** SQL terpendek yang memicu bug:
+
+```sql
+SELECT x FROM t WHERE a = 1 OR b = 2 AND c = 3
+```
+
+**Akar masalah.** Pada fungsi _logical di parser.py, operator AND dan OR diproses dalam satu loop yang sama, sehingga keduanya diperlakukan setara dan dibaca dari kiri ke kanan. Akibatnya, ekspresi a = 1 OR b = 2 AND c = 3 terbaca sebagai (a = 1 OR b = 2) AND c = 3, padahal pada SQL AND memiliki presedensi lebih tinggi daripada OR, seperti perkalian terhadap penjumlahan, sehingga seharusnya terbaca a = 1 OR (b = 2 AND c = 3).
+
+**Perbaikan.** Di `crud/parser.py`, `_logical` dipecah menjadi dua fungsi: `_or` yang memanggil `_and` untuk kedua sisinya, dan `_and` yang memanggil `_not`. `_expr` kini memanggil `_or`. Dengan begitu `AND` selalu terikat lebih dulu daripada `OR`, sesuai grammar (`or_expr` dibangun dari `and_expr`, yang dibangun dari `not_expr`). Alternatif yang dipertimbangkan: precedence climbing atau parser Pratt dengan tabel binding power. Tidak dipilih karena fungsi lain di parser ini (`_additive`, `_multiplicative`) sudah memakai pola satu fungsi per tingkat, jadi perbaikannya konsisten dan lebih mudah dicocokkan dengan grammar.
+
+**Test regresi.** `test_regresi_and_lebih_kuat_dari_or` (gagal sebelum perbaikan dengan `assert 'AND' == 'OR'`, lulus sesudahnya). Kasus tepi: `test_and_lalu_or_dibaca_and_dulu` dan `test_not_lebih_kuat_dari_and`.
+
+**Peran AI.** AI membantu menunjukkan lokasi bug di `_logical` dengan membandingkan kode dengan spesifikasi 3.1 dan menyarankan bentuk perbaikan. Diverifikasi dengan test yang gagal dulu karena alasan yang benar (`AND` vs `OR`), lalu `python -m pytest` penuh hijau (50 passed).
+
+---
