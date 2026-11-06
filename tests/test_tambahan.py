@@ -33,7 +33,6 @@ def test_ident_berawalan_keyword_tetap_ident():
 
 
 def test_regresi_komentar_blok_lintas_baris_tidak_jadi_token():
-    # TODO(T3): sebelumnya komentar blok langsung memicu LexError.
     toks = tokenize("/* satu\n dua */ SELECT")
     assert [t.value for t in toks if t.type != T.EOF] == ["SELECT"]
 
