@@ -1,4 +1,14 @@
 file,baris,tabel,operasi
+audit.sql,2,pelanggan,R
+audit.sql,2,pesanan,R
+audit.sql,8,pelanggan,R
+audit.sql,8,pembayaran,R
+audit.sql,12,pelanggan,R
+audit.sql,12,pesanan,R
+audit.sql,16,sesi,D
+audit.sql,18,pengguna,R
+audit.sql,20,pelanggan,R
+audit.sql,20,pesanan,U
 campuran_error.sql,2,pelanggan,R
 campuran_error.sql,6,produk,U
 campuran_error.sql,8,keranjang,D
