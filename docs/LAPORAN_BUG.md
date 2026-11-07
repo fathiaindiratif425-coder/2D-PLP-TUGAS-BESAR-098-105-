@@ -16,7 +16,7 @@ select 1
 
 **Perbaikan.** Di lexer.py fungsi `_word`, teks kata diubah ke huruf besar (`upper = text.upper()`) sebelum dicek ke `KEYWORDS`. Token keyword disimpan dengan nilai huruf besar, tapi `IDENT` tetap memakai teks asli. Alternatif yang dipertimbangkan adalah memeriksa awalan kata. Tidak dipilih karena `selection` dan `fromage` bakal salah dikenali sebagai keyword, kata dibaca utuh dulu, baru dicocokkan.
 
-**Test regresi.** test_regresi_keyword_campur_huruf_dinormalisasi` (gagal sebelum perbaikan, lulus sesudahnya) dan `test_ident_berawalan_keyword_tetap_ident` (kasus tepi).
+**Test regresi.** `test_regresi_keyword_campur_huruf_dinormalisasi` (gagal sebelum perbaikan, lulus sesudahnya) dan `test_ident_berawalan_keyword_tetap_ident` (kasus tepi).
 
 
 **Peran AI.** AI membantu menunjuk lokasi bug di `_word` dan menyarankan bentuk perbaikan. Diverifikasi dengan menjalankan test regresi sebelum perbaikan (merah) dan sesudahnya (hijau), serta `python -m pytest` penuh.
@@ -37,7 +37,7 @@ select 1
 
 **Akar masalah.** Ini bukan bug logika, tapi bagian yang memang belum ditulis. Di _scan_token, ketika lexer ketemu /*, kodenya langsung raise LexError karena isinya masih TODO(T3). Padahal komentar itu cuma lexeme yang harus dibaca sampai penutup */, lalu dibuang tanpa menambah token. Bedanya dengan komentar -- (berhenti di akhir baris): komentar blok berhenti di */, bisa lintas baris, dan harus melempar error kalau file habis sebelum penutup ketemu.
 
-**Perbaikan.** Di `crud/lexer.py` fungsi `_scan_token`, cabang `/*` diganti dengan loop yang membaca karakter sampai menemukan `*/` memakai `_peek()` dan `_peek(1)` (mengintip dua karakter tanpa maju). Jika input habis sebelum penutup, dilempar `LexError("komentar blok tidak ditutup")`. Setelah penutup ditemukan, fungsi `return` tanpa menambah token. Alternatif: regular expression `/\*.*?\*/`. Tidak dipilih karena lexer ini dibangun karakter demi karakter dan pelacakan baris/kolom lewat `_advance() ` tetap benar.
+**Perbaikan.** Di `crud/lexer.py` fungsi `_scan_token`, cabang `/*` diganti dengan loop yang membaca karakter sampai menemukan `*/` memakai `_peek()` dan `_peek(1)` (mengintip dua karakter tanpa maju). Jika input habis sebelum penutup, dilempar `LexError("komentar blok tidak ditutup")`. Setelah penutup ditemukan, fungsi `return` tanpa menambah token. Alternatif: regular expression `/\*.*?\*/`. Tidak dipilih karena lexer ini dibangun karakter demi karakter dan pelacakan baris/kolom lewat `_advance()` tetap benar.
 
 
 **Test regresi.** `test_regresi_komentar_blok_lintas_baris_tidak_jadi_token`,
