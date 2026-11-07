@@ -1,4 +1,6 @@
 # Laporan Akhir
+Fathia Indira Salsabila - 251524098
+Ivanka Bunga Aulia - 251524105
 
 ## 1. Hasil evaluasi
 
