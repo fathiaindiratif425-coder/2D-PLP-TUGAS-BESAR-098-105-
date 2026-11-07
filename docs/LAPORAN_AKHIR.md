@@ -5,14 +5,13 @@
 Tempel keluaran `python evaluate.py` setelah `data/ground_truth.csv` dilengkapi.
 
 ```
-PS C:\Users\aihtaf\2D-PLP-TUGAS-BESAR-098-105->py evaluate.py
-Belum berlabel (tidak dievaluasi): pemeliharaan.sql
+PS C:\Users\aihtaf\2D-PLP-TUGAS-BESAR-098-105-> py evaluate.py
 
-Dievaluasi: audit.sql, campuran_error.sql, laporan_penjualan.sql (20 triple)
+Dievaluasi: audit.sql, campuran_error.sql, laporan_penjualan.sql, pemeliharaan.sql (27 triple)
 
 Metode   Precision  Recall     F1
 parser        1.00    1.00   1.00
-regex         0.68    0.85   0.76
+regex         0.65    0.81   0.72
 
 [regex]
   salah ditemukan (FP): ('audit.sql', 16, 'sesi', 'R')
@@ -23,9 +22,15 @@ regex         0.68    0.85   0.76
   salah ditemukan (FP): ('laporan_penjualan.sql', 2, 'pesanan', 'R')
   salah ditemukan (FP): ('laporan_penjualan.sql', 2, 'rahasia', 'R')
   salah ditemukan (FP): ('laporan_penjualan.sql', 15, 'pesanan', 'R')
+  salah ditemukan (FP): ('pemeliharaan.sql', 2, 'crm.alamat', 'R')
+  salah ditemukan (FP): ('pemeliharaan.sql', 2, 'crm.pelanggan', 'R')
+  salah ditemukan (FP): ('pemeliharaan.sql', 2, 'pelanggan_lama', 'U')
+  salah ditemukan (FP): ('pemeliharaan.sql', 15, 'crm.alamat', 'R')
   terlewat (FN):       ('audit.sql', 2, 'pesanan', 'R')
   terlewat (FN):       ('laporan_penjualan.sql', 3, 'pelanggan', 'R')
   terlewat (FN):       ('laporan_penjualan.sql', 3, 'pesanan', 'R')
+  terlewat (FN):       ('pemeliharaan.sql', 3, 'crm.alamat', 'R')
+  terlewat (FN):       ('pemeliharaan.sql', 3, 'crm.pelanggan', 'R')
   
 ```
 
