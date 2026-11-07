@@ -76,14 +76,38 @@ lexing, parsing, atau resolusi).
 
 ## 3. Batas pendekatan kami
 
-Minimal tiga hal yang **tidak bisa** ditangani dengan benar oleh tool ini meskipun semua bug
-sudah diperbaiki. Untuk tiap batas: contoh SQL atau situasinya, akibatnya pada CRUD matrix,
-dan informasi apa yang dibutuhkan untuk mengatasinya.
+1. **Kolom tanpa qualifier saat ada lebih dari satu tabel.**
 
-1.
-2.
-3.
+   ```sql
+   SELECT nama FROM pelanggan, pesanan;
+   ```
+
+   Tanpa skema database, tool tidak tahu `nama` milik `pelanggan` atau `pesanan`. Resolver mengeluarkan warning `kolom 'nama' ambigu tanpa skema` dan `ColumnRef.resolved` tetap `None`. *Akibat pada CRUD matrix:* baris tabel tetap benar karena tabel diambil dari `FROM`, tetapi penggunaan kolom (`--kolom`) kehilangan entri untuk `nama` karena kolom itu tidak bisa ditautkan ke tabel. *Yang dibutuhkan:* skema, yaitu daftar kolom tiap tabel (misalnya dari DDL atau katalog database).
+
+2. **View, trigger, dan stored procedure menyembunyikan efek sebenarnya.**
+
+   ```sql
+   SELECT * FROM v_pelanggan_aktif;
+   INSERT INTO pesanan (...) VALUES (...);
+   ```
+
+   Tool memperlakukan `v_pelanggan_aktif` sebagai tabel biasa, jadi matrix mencatat `v_pelanggan_aktif R`, padahal yang dibaca sebenarnya tabel dasar di balik view itu. Jika `INSERT INTO pesanan` memicu trigger yang menulis ke `log_pesanan` atau mengubah tabel lain, efek C/U/D itu tidak tampak di statement dan tidak masuk matrix. *Akibat pada CRUD matrix:* hasilnya kurang lengkap (efek tersembunyi tidak tercatat) dan bisa memuat nama view sebagai tabel. *Yang dibutuhkan:* definisi view, trigger, dan procedure beserta grafik ketergantungannya. Semua itu DDL, yang di luar lingkup (SPESIFIKASI §9).
+
+3. **`WITH` (CTE) dan `UNION` membuat seluruh statement hilang dari matrix.**
+
+   ```sql
+   WITH aktif AS (SELECT * FROM pelanggan) SELECT * FROM aktif;
+   SELECT id FROM pelanggan UNION SELECT id FROM pemasok;
+   ```
+
+   Grammar tool tidak mengenal `WITH` maupun `UNION`. Statement diawali `WITH` ditolak di `_statement`, dan statement dengan `UNION` menghasilkan error sintaks. Menurut SPESIFIKASI §5, statement yang gagal di-parse tidak dihitung. *Akibat pada CRUD matrix:* semua tabel di dalamnya, termasuk bagian `SELECT` biasa yang sebenarnya bisa dibaca, hilang dari matrix dan hanya muncul sebagai error. *Yang dibutuhkan:* bukan informasi tambahan, melainkan perluasan grammar (CTE sebagai scope tambahan, `UNION` sebagai gabungan dua `SELECT`).
 
 ## 4. Pembagian kerja
 
-Siapa mengerjakan apa, dan bagaimana kalian memastikan keduanya memahami seluruh kode.
+Kami membagi kode menurut tahap pipeline. Bunga mengerjakan resolver (urutan pencarian scope, scope `DELETE`), parser `INSERT ... SELECT` dan `JOIN` (termasuk `LEFT OUTER JOIN`), kolom tanpa qualifier, serta analyzer. Fathia mengerjakan lexer (normalisasi keyword, komentar blok, `''` di dalam string), panic mode, dan presedensi `AND`/`OR`. Masing-masing bekerja di branch sendiri (`105_Bunga` dan `098_Fathia`) lalu digabung ke `main` lewat Pull Request, dan keduanya aktif sebagai kontributor di riwayat commit.
+
+Supaya keduanya paham seluruh kode, kami memakai empat cara:
+
+- Tiap perbaikan diawali test regresi yang merah, lalu kodenya diperbaiki sampai hijau, sehingga rekan bisa menjalankan test untuk melihat bug dan perbaikannya.
+- Bagian akar masalah di `LAPORAN_BUG.md` ditulis dengan kata-kata sendiri, lalu dijelaskan ulang ke rekan.
+- Ground truth: Fathia melabeli `audit.sql`, Bunga melabeli `pemeliharaan.sql`, lalu kami saling memeriksa.
