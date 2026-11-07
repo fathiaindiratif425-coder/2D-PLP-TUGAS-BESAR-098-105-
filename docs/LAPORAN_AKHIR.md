@@ -106,7 +106,7 @@ lexing, parsing, atau resolusi).
 
 Kami membagi kode menurut tahap pipeline. Bunga mengerjakan resolver (urutan pencarian scope, scope `DELETE`), parser `INSERT ... SELECT` dan `JOIN` (termasuk `LEFT OUTER JOIN`), kolom tanpa qualifier, serta analyzer. Fathia mengerjakan lexer (normalisasi keyword, komentar blok, `''` di dalam string), panic mode, dan presedensi `AND`/`OR`. Masing-masing bekerja di branch sendiri (`105_Bunga` dan `098_Fathia`) lalu digabung ke `main` lewat Pull Request, dan keduanya aktif sebagai kontributor di riwayat commit.
 
-Supaya keduanya paham seluruh kode, kami memakai empat cara:
+Supaya keduanya paham seluruh kode, kami memakai tiga cara:
 
 - Tiap perbaikan diawali test regresi yang merah, lalu kodenya diperbaiki sampai hijau, sehingga rekan bisa menjalankan test untuk melihat bug dan perbaikannya.
 - Bagian akar masalah di `LAPORAN_BUG.md` ditulis dengan kata-kata sendiri, lalu dijelaskan ulang ke rekan.
