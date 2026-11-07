@@ -185,4 +185,4 @@ class Resolver:
             self._warning(f"kolom '{col.name}' ambigu tanpa skema", col.line)
         else:
             self._warning(f"kolom '{col.name}' tidak punya tabel untuk di-resolve", col.line)
-        pass
+        
